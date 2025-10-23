@@ -86,7 +86,7 @@ La API se enfoca en el recurso `/inventory/items` para manejar las operaciones d
 }
 ```
 
-## 5. Códigos de Respuesta HTTP Clave (Command Service)
+#### 4.3. Códigos de Respuesta HTTP Clave (Command Service)
 
 | Código | Descripción | Operaciones Afectadas |
 | :--- | :--- | :--- |
@@ -95,3 +95,25 @@ La API se enfoca en el recurso `/inventory/items` para manejar las operaciones d
 | **404 Not Found** | El producto o la tienda no existe en el sistema. | GET, POST, PUT |
 | **409 Conflict** | **Consistencia:** No hay suficiente stock para completar la reserva. (Equivalente a una `StockNotAvailableException`). | POST /reservations |
 | **500 Internal Server Error** | Error de base de datos o fallo en el mecanismo de bloqueo. | POST, PUT |
+
+## 5. Estrategia Técnica y Herramientas Seleccionadas
+
+### 5.1 Stack Tecnológico para el Prototipo
+
+| Aspecto | Tecnología Seleccionada | Justificación para el Prototipo |
+| :--- | :--- | :--- |
+| **Lenguaje/Framework** | **Java 21 y Spring Boot 3+** | Elección del proyecto. Ideal para microservicios robustos con excelente soporte para transacciones y concurrencia. |
+| **Persistencia (Simulación)** | **H2 Database (Modo en Memoria/Archivo)** | Cumple con el requisito de base de datos simulada. H2 es compatible con las características de JPA que permiten simular **Bloqueos Pesimistas**, clave para la Consistencia. |
+| **Comunicaciones Críticas** | **RESTful Síncrono** | Mecanismo obligatorio para forzar la **Consistencia Fuerte** en las escrituras. El cliente espera la confirmación transaccional del Command Service. |
+| **Manejo de Proyectos** | **Maven** | Estándar en Java para la gestión de dependencias (Spring Boot, H2, Testing) y la automatización de la construcción (Build). |
+| **Tolerancia a Fallos** | **Resilience4j** | Librería para implementar patrones de resiliencia como **`@Retry`** (reintentos) y **`@CircuitBreaker`** (cortacircuitos) en llamadas simuladas a servicios externos (ej. pago). |
+| **Pruebas** | **JUnit 5 / Mockito** | Frameworks estándar para pruebas, cruciales para validar la compleja lógica de concurrencia y transacciones. |
+
+### 5.2 Enfoque de Implementación de Consistencia Fuerte
+
+Para el **Inventory Command Service**, la consistencia se abordará directamente en el `InventoryService` con las siguientes técnicas:
+
+1.  **Bloqueo Pesimista Simulado:** La lógica de negocio utilizará la gestión transaccional de Spring Data JPA (posiblemente con la anotación `@Lock(LockModeType.PESSIMISTIC_WRITE)`) o implementará un mecanismo de **bloqueo a nivel de aplicación** (`ReentrantLock` de Java, mapeado por `productId/storeId`) para garantizar que **solo una petición** pueda modificar el registro de inventario crítico a la vez.
+2.  **Transacciones Atómicas:** El uso de `@Transactional` de Spring Boot asegurará que las operaciones de `Reservar Stock` o `Actualizar Stock` sean atómicas. Cualquier fallo, como una cantidad insuficiente, lanzará una excepción que obligará a un *rollback* completo de la base de datos.
+
+Este enfoque de serialización de comandos de escritura elimina el riesgo de condiciones de carrera y sobreventa.
