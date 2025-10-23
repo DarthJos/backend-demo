@@ -35,3 +35,63 @@
 | **Operaciones de Lectura (Query)** | **Disponibilidad (A)** | El stock que ve el cliente puede tener una latencia mínima (ms) respecto al stock real, pero siempre es más rápido y disponible. | Actualización de datos por Eventos Asíncronos (Consistencia Eventual). |
 
 **Conclusión:** La consistencia fuerte se logra mediante un **punto de control de escritura síncrono** (el Command Service) que utiliza bloqueos a nivel de base de datos o aplicación para serializar las operaciones críticas de stock.
+
+## 4. Diseño de la API para Operaciones Clave
+
+La API se enfoca en el recurso `/inventory/items` para manejar las operaciones de stock. La comunicación con el **Inventory Command Service** para la escritura será SÍNCRONA, garantizando la consistencia.
+
+| Operación | Método HTTP | URI (Endpoint) | Propósito y Servicio |
+| :--- | :--- | :--- | :--- |
+| **1. Obtener Stock** | `GET` | `/inventory/stores/{storeId}/products/{productId}` | **Consulta (Query Service).** Retorna el stock disponible para una combinación específica de tienda y producto. Baja latencia. |
+| **2. Reservar Stock** | `POST` | `/inventory/reservations` | **Comando (Command Service).** Realiza una reserva transaccional (compra online). Usa bloqueo pesimista. Devuelve éxito/fallo síncronamente. |
+| **3. Actualizar Stock** | `PUT` | `/inventory/stock-updates` | **Comando (Command Service).** Ajustes de stock (recepción de mercancía, inventario físico). Requiere garantía de atomicidad e idempotencia. |
+
+#### 4.1. Request: POST /inventory/reservations (Reserva de Stock)
+
+| Campo | Tipo | Requerido | Descripción |
+| :--- | :--- | :--- | :--- |
+| `transactionId` | String (UUID) | Sí | **Clave de Idempotencia.** Identificador único para evitar doble procesamiento de una misma compra. |
+| `productId` | String | Sí | Identificador SKU del producto a reservar. |
+| `storeId` | String | Sí | Tienda de la que se reservará el stock. |
+| `quantity` | Integer | Sí | Cantidad de unidades a reservar/reducir. |
+
+**Ejemplo de Request:**
+```json
+{
+  "transactionId": "34c1b9b0-8e1c-4b5a-9d6f-7e8c9a0b1d2e",
+  "productId": "P12345",
+  "storeId": "S001",
+  "quantity": 1
+}
+```
+
+#### 4.2. Request: PUT /inventory/stock-updates (Ajuste/Recepción)
+
+| Campo | Tipo | Requerido | Descripción |
+| :--- | :--- | :--- | :--- |
+| `updateId` | String (UUID) | Sí | **Clave de Idempotencia.** Identificador único del ajuste de inventario. |
+| `productId` | String | Sí | Identificador SKU del producto. |
+| `storeId` | String | Sí | Tienda afectada. |
+| `quantityChange` | Integer | Sí | **Cambio de Cantidad.** Positivo (entrada) o Negativo (salida). |
+| `reason` | String | No | Motivo del ajuste (e.g., "Recepción de proveedor", "Ajuste por pérdida"). |
+
+**Ejemplo de Request:**
+```json
+{
+  "updateId": "8a3c4f7b-2a9d-4c3e-8b1a-5d4f6e7c8d9a",
+  "productId": "P12345",
+  "storeId": "S001",
+  "quantityChange": 15,
+  "reason": "Recepción de nuevo lote"
+}
+```
+
+## 5. Códigos de Respuesta HTTP Clave (Command Service)
+
+| Código | Descripción | Operaciones Afectadas |
+| :--- | :--- | :--- |
+| **200 OK** | La operación (Reserva/Actualización) fue exitosa. La Consistencia fue garantizada. | POST, PUT |
+| **400 Bad Request** | La petición está mal formada (ej. faltan campos requeridos). | POST, PUT |
+| **404 Not Found** | El producto o la tienda no existe en el sistema. | GET, POST, PUT |
+| **409 Conflict** | **Consistencia:** No hay suficiente stock para completar la reserva. (Equivalente a una `StockNotAvailableException`). | POST /reservations |
+| **500 Internal Server Error** | Error de base de datos o fallo en el mecanismo de bloqueo. | POST, PUT |
