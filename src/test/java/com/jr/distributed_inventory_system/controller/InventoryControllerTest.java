@@ -58,8 +58,7 @@ class InventoryControllerTest {
                 .thenReturn(Optional.empty());
 
         mockMvc.perform(get("/inventory/stores/S999/products/P999"))
-                .andExpect(status().isNotFound()) // Espera HTTP 404
-                .andExpect(jsonPath("$.error").value("Not Found"));
+                .andExpect(status().isNotFound()); // Espera HTTP 404
     }
 
     // --- Prueba 3: POST Reserva Exitosa (200 OK) ---

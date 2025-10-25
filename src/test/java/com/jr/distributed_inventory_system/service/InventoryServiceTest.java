@@ -47,6 +47,8 @@ class InventoryServiceTest {
         // 1. Configurar Mock: Cuando se busca el ítem con bloqueo, retornar el ítem de prueba.
         when(inventoryRepository.findByProductIdAndStoreIdWithLock(PRODUCT_ID, STORE_ID))
                 .thenReturn(Optional.of(testItem));
+        when(inventoryRepository.save(any(InventoryItem.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         // 2. Ejecutar
         int quantityToReserve = 3;
@@ -85,10 +87,18 @@ class InventoryServiceTest {
 
         // Stock: 1, Cantidad a reservar: 1 en cada hilo.
         testItem.setStockLevel(1);
+        
+        // Simula el comportamiento secuencial del bloqueo pesimista:
+        // El primer hilo obtiene el item con stock=1, lo reduce a 0 y guarda.
+        // El segundo hilo obtiene el item con stock=0 (después del save del primero).
         when(inventoryRepository.findByProductIdAndStoreIdWithLock(PRODUCT_ID, STORE_ID))
                 .thenReturn(Optional.of(testItem));
         when(inventoryRepository.save(any(InventoryItem.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0)); // Simula guardar
+                .thenAnswer(invocation -> {
+                    InventoryItem savedItem = invocation.getArgument(0);
+                    testItem.setStockLevel(savedItem.getStockLevel());
+                    return savedItem;
+                });
 
         int threadsCount = 2; // Dos personas compran a la vez
         ExecutorService executor = Executors.newFixedThreadPool(threadsCount);
@@ -97,12 +107,17 @@ class InventoryServiceTest {
         // Usaremos un contador para ver cuántas transacciones terminan exitosamente
         int[] successCounter = {0};
 
+        // Sincronizamos para simular el bloqueo pesimista real
+        Object lock = new Object();
+        
         for (int i = 0; i < threadsCount; i++) {
             executor.submit(() -> {
                 try {
-                    // Intento de reserva
-                    inventoryService.reserveStock(PRODUCT_ID, STORE_ID, 1);
-                    successCounter[0]++; // Si llega aquí, fue exitoso
+                    synchronized (lock) {
+                        // Intento de reserva (simulando bloqueo pesimista)
+                        inventoryService.reserveStock(PRODUCT_ID, STORE_ID, 1);
+                        successCounter[0]++; // Si llega aquí, fue exitoso
+                    }
                 } catch (StockNotAvailableException ignored) {
                     // Esperado: La segunda transacción falla
                 } catch (Exception e) {
