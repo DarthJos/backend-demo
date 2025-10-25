@@ -6,6 +6,7 @@ import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -29,5 +30,6 @@ public interface InventoryRepository extends JpaRepository<InventoryItem, String
      * @return El InventoryItem bloqueado.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT i FROM InventoryItem i WHERE i.productId = :productId AND i.storeId = :storeId")
     Optional<InventoryItem> findByProductIdAndStoreIdWithLock(String productId, String storeId);
 }
